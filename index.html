@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#2d6cb3">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<title>HarzScan</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="brand">
+      <div class="logo"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round"><path d="M4 8V6a2 2 0 0 1 2-2h2M16 4h2a2 2 0 0 1 2 2v2M20 16v2a2 2 0 0 1-2 2h-2M8 20H6a2 2 0 0 1-2-2v-2"/><circle cx="12" cy="12" r="3.2" fill="#d9822b" stroke="none"/></svg></div>
+      <div><h1>HarzScan</h1><p id="projName">Bilddaten für die Harzfleck-Erkennung</p></div>
+    </div>
+    <div id="status" class="status"><span class="dot"></span><span id="statusText">Starte …</span></div>
+  </header>
+
+  <!-- Einrichtung -->
+  <section id="setup" class="hidden">
+    <div class="card">
+      <h2>Einmal einrichten</h2>
+      <label class="f" for="hall">In welcher Halle bist du?</label>
+      <input id="hall" type="text" placeholder="z. B. Sporthalle Nord" autocomplete="off" maxlength="80">
+      <label class="f" for="plate">Nummer auf deiner Holzplatte</label>
+      <input id="plate" type="text" placeholder="z. B. F03" autocomplete="off" autocapitalize="characters" maxlength="12">
+      <label class="f" style="display:flex;gap:10px;align-items:flex-start;font-weight:400;color:var(--ink);font-size:14px">
+        <input id="consent" type="checkbox" style="width:20px;height:20px;margin-top:2px;flex:none">
+        <span>Ich habe die Hinweise unten gelesen und fotografiere nur den Hallenboden, keine Personen.</span>
+      </label>
+      <button class="btn" id="saveSetup" style="margin-top:12px">Weiter</button>
+    </div>
+  </section>
+
+  <!-- Startseite -->
+  <section id="home" class="hidden">
+    <div class="card">
+      <div class="setup"><div>Halle <b id="hHall"></b> · Platte <b id="hPlate"></b></div><button class="link" id="editSetup">ändern</button></div>
+    </div>
+    <div class="card">
+      <button class="hero" id="start">📷 Fotos aufnehmen<small>3 Fotos pro Fleck – die App sagt dir bei jedem, wie</small></button>
+      <p class="hint" style="text-align:center;margin-top:10px">Vorher: Platte neben den Fleck legen (5–10 cm daneben, nicht drauf).</p>
+      <div id="last"></div>
+    </div>
+    <div class="card" id="queueCard"></div>
+  </section>
+
+  <div class="card">
+    <details>
+      <summary>So geht’s & Datenschutz</summary>
+      <h3>Ablauf</h3>
+      <ul>
+        <li>Platte mit deiner Nummer neben den Fleck legen. Sie muss auf allen drei Fotos ganz zu sehen sein.</li>
+        <li><b>Foto 1 – Nah:</b> Handy ca. 30 cm über dem Fleck, waagerecht. Die Wasserwaage unten links wird grün, wenn es passt.</li>
+        <li><b>Foto 2 – Übersicht:</b> aufrecht stehen, Handy auf Brusthöhe waagerecht nach unten.</li>
+        <li><b>Foto 3 – Schräg:</b> 1 m zurück, flach gegen das Hallenlicht (ca. 30° zum Boden). Optional.</li>
+        <li>Auch Stellen <b>ohne</b> Harz fotografieren, die ähnlich aussehen (Gummiabrieb, Schuhstriemen, Kratzer, Wasserflecken).</li>
+        <li>Unten in der Kamera kannst du jedes der drei Fotos antippen und neu aufnehmen.</li>
+        <li>Kein Netz in der Halle? Egal – die Fotos bleiben auf dem Handy und laden automatisch hoch, sobald wieder Netz da ist.</li>
+      </ul>
+      <h3>Datenschutz</h3>
+      <p id="privacy">Gespeichert werden nur die Fotos vom Hallenboden, der Name der Halle, deine Plattennummer, Zeitpunkt, Handy-Neigung und eine zufällige Geräte-Kennung. Kein Name, keine E-Mail, kein Standort. Die Fotos dienen ausschließlich der Forschung im Rahmen einer Masterarbeit.</p>
+    </details>
+  </div>
+</div>
+
+<!-- Kamera -->
+<div id="cam" class="hidden">
+  <video id="video" playsinline muted autoplay></video>
+  <div class="frame"><span>Fleck + Platte in den Rahmen</span></div>
+  <div class="flash" id="flash"></div>
+  <div class="top">
+    <span class="stepchip" id="cStep">Foto 1 von 3</span>
+    <div class="title" id="cTitle">Nah</div>
+    <div class="line" id="cLine"></div>
+    <button class="x" id="cClose">Fertig</button>
+  </div>
+  <div class="bottom">
+    <div class="strip" id="strip"></div>
+    <div class="ctrl">
+      <div class="side">
+        <div class="level" id="level"><div class="bubble" id="bubble"></div></div>
+        <div class="levtxt" id="levtxt">Neigung –</div>
+      </div>
+      <button class="shutter" id="shutter" aria-label="Foto aufnehmen"></button>
+      <div class="side r">
+        <button class="smallbtn" id="skip">überspringen</button>
+        <button class="smallbtn" id="sysCam">Systemkamera</button>
+      </div>
+    </div>
+    <div class="res" id="res"></div>
+  </div>
+</div>
+
+<input type="file" id="fileCam" accept="image/*" capture="environment" class="hidden">
+<div id="toast"></div>
+
+<script src="config.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="app.js"></script>
+</body>
+</html>
