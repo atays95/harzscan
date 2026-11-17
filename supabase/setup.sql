@@ -75,6 +75,10 @@ drop policy if exists "admins loeschen Bilder" on storage.objects;
 create policy "admins loeschen Bilder" on storage.objects
   for delete to authenticated using (bucket_id = 'harzscan');
 
+-- 5) Update v1.1 (17.11.2026): Vorab-Label bei der Aufnahme (von den Helfern gewählt)
+alter table public.photos add column if not exists vorlabel text
+  check (vorlabel in ('harz_frisch','harz_alt','kein_harz','unsicher'));
+
 -- WICHTIG danach: Authentication → Sign In / Providers →
 -- "Allow new users to sign up" AUSSCHALTEN. Sonst könnte sich jeder
 -- selbst ein Konto anlegen und wäre damit "Admin".

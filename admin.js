@@ -58,6 +58,7 @@ function group() {
     const e = by[p.entry_id] || (by[p.entry_id] = { id: p.entry_id, shots: {}, all: [], hall: p.hall, plate: p.plate, at: p.taken_at });
     e.all.push(p);
     if (!e.shots[p.shot] || e.shots[p.shot].taken_at < p.taken_at) e.shots[p.shot] = p;
+    if (p.vorlabel && (!e.vorlabelAt || p.taken_at > e.vorlabelAt)) { e.vorlabel = p.vorlabel; e.vorlabelAt = p.taken_at; }   // neuestes Vorab-Label
     if (p.taken_at < e.at) e.at = p.taken_at;
   }
   S.entries = Object.values(by).sort((a, b) => b.at.localeCompare(a.at));
@@ -82,7 +83,11 @@ async function signed(paths) {
     if (!error && data) data.forEach(d => { if (d.signedUrl) S.urls[d.path] = d.signedUrl; });
   }
 }
-function badge(e) { const l = S.labels[e.id] && S.labels[e.id].label; return l ? `<span class="badge b-${esc(l)}">${esc(LABELS[l] || l)}</span>` : `<span class="badge b-none">ohne Label</span>`; }
+function badge(e) {
+  const l = S.labels[e.id] && S.labels[e.id].label;
+  const vor = e.vorlabel ? ` <span class="hint">Vorab: ${esc(LABELS[e.vorlabel] || e.vorlabel)}${l && l !== e.vorlabel ? " ≠" : ""}</span>` : "";
+  return (l ? `<span class="badge b-${esc(l)}">${esc(LABELS[l] || l)}</span>` : `<span class="badge b-none">ohne Label</span>`) + vor;
+}
 const fmt = t => new Date(t).toLocaleString("de-DE", { day: "2-digit", month: "2-digit", year: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit" });
 const firstShot = e => e.shots[ORDER.find(k => e.shots[k])] || e.all[0];
 
@@ -111,6 +116,7 @@ async function openEntry(id) {
   $("#sheet").innerHTML = `
     <div class="row"><h2 style="margin:0">${esc(e.plate || "–")} · ${esc(fmt(e.at))}</h2><button class="btn sec" id="close" style="flex:0 0 auto;width:auto;padding:8px 14px">Schließen</button></div>
     <h3>Label</h3>
+    ${e.vorlabel ? `<p class="hint" style="margin:0 0 6px">Bei der Aufnahme angegeben: <b>${esc(LABELS[e.vorlabel] || e.vorlabel)}</b></p>` : ""}
     <div class="chips">${Object.entries(LABELS).map(([k, t]) => `<button class="chip l-${k}" data-label="${k}" aria-pressed="${L.label === k}">${t}</button>`).join("")}</div>
     <label class="f" for="note">Notiz</label><textarea id="note" maxlength="500">${esc(L.note || "")}</textarea>
     <dl class="kv"><dt>Halle</dt><dd>${esc(e.hall)}</dd><dt>Platte</dt><dd>${esc(e.plate || "–")}</dd><dt>Gerät</dt><dd>${esc(String(e.all[0].device_id || "").slice(0, 8))}</dd><dt>Eintrag</dt><dd style="font-size:12px">${esc(e.id)}</dd></dl>
@@ -153,12 +159,12 @@ $("#modal").addEventListener("click", e => { if (e.target.id === "modal") closeE
 
 /* ---------- CSV ---------- */
 $("#csv").addEventListener("click", () => {
-  const head = ["entry_id", "photo_id", "halle", "platte", "label", "notiz", "aufnahme", "storage_path", "breite", "hoehe", "bytes", "quelle", "neigung_von_waagerecht", "kamera_zum_boden", "beta", "gamma", "helligkeit", "ueberbelichtet_pct", "schaerfe", "zeit", "geraet"];
+  const head = ["entry_id", "photo_id", "halle", "platte", "label", "vorlabel", "notiz", "aufnahme", "storage_path", "breite", "hoehe", "bytes", "quelle", "neigung_von_waagerecht", "kamera_zum_boden", "beta", "gamma", "helligkeit", "ueberbelichtet_pct", "schaerfe", "zeit", "geraet"];
   const q = v => { const s = String(v ?? ""); return /[;"\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; };
   const rows = [head.join(";")];
   filtered().forEach(e => ORDER.filter(k => e.shots[k]).forEach(k => {
     const p = e.shots[k], L = S.labels[e.id] || {}, t = p.tilt || {}, qq = p.quality || {};
-    rows.push([e.id, p.id, p.hall, p.plate, L.label, L.note, p.shot, p.storage_path, p.width, p.height, p.bytes, p.source, t.offFlat, t.camDown, t.beta, t.gamma, qq.bright, qq.over, qq.sharp, p.taken_at, p.device_id].map(q).join(";"));
+    rows.push([e.id, p.id, p.hall, p.plate, L.label, p.vorlabel, L.note, p.shot, p.storage_path, p.width, p.height, p.bytes, p.source, t.offFlat, t.camDown, t.beta, t.gamma, qq.bright, qq.over, qq.sharp, p.taken_at, p.device_id].map(q).join(";"));
   }));
   const blob = new Blob(["﻿" + rows.join("\n")], { type: "text/csv;charset=utf-8" });
   const a = document.createElement("a"); a.href = URL.createObjectURL(blob);

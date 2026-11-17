@@ -7,7 +7,13 @@
 (() => {
 "use strict";
 
-const APP_VERSION = "web-1.0";
+const APP_VERSION = "web-1.1";   // 1.1: Vorab-Label, Auflösungswahl, Fokus per Tippen (wo der Browser es erlaubt)
+const VORLABEL = { harz_frisch: "Harz frisch", harz_alt: "Harz alt", kein_harz: "kein Harz", unsicher: "unsicher" };
+const AUFL = [   // Live-Kamera; "max" = höchste Auflösung, die der Browser liefert (iPhone meist 12 MP)
+  { k: "max", t: "Max", w: 4032, h: 3024 },
+  { k: "4k",  t: "4K",  w: 3840, h: 2160 },
+  { k: "hd",  t: "Full HD", w: 1920, h: 1080 }
+];
 const CFG = window.HARZSCAN_CONFIG || {};
 const DEMO = !CFG.supabaseUrl || !CFG.supabaseAnonKey;
 const BUCKET = CFG.bucket || "harzscan";
@@ -39,7 +45,8 @@ const S = {
   hall: store.get("hall", ""), plate: store.get("plate", ""), consent: store.get("consent", false),
   device: store.get("device", null),
   cur: null, last: null, stream: null, sysMode: false, ori: null, oriAsked: false,
-  queue: [], uploading: false, lastError: null, uploadedCount: store.get("uploaded", 0)
+  queue: [], uploading: false, lastError: null, uploadedCount: store.get("uploaded", 0),
+  aufl: store.get("aufl", "max"), track: null, fokusHinweis: false
 };
 if (!S.device) { S.device = uuid(); store.set("device", S.device); }
 if (CFG.projectName) $("#projName").textContent = CFG.projectName;
@@ -156,13 +163,64 @@ function drawLevel() {
 async function startStream() {
   if (S.stream) return true;
   if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) return false;
+  const a = AUFL.find(x => x.k === S.aufl) || AUFL[0];
   try {
-    S.stream = await navigator.mediaDevices.getUserMedia({ audio: false, video: { facingMode: { ideal: "environment" }, width: { ideal: 4032 }, height: { ideal: 3024 } } });
+    S.stream = await navigator.mediaDevices.getUserMedia({ audio: false, video: { facingMode: { ideal: "environment" }, width: { ideal: a.w }, height: { ideal: a.h } } });
     const v = $("#video"); v.srcObject = S.stream; await v.play().catch(() => {});
+    S.track = S.stream.getVideoTracks()[0] || null;
+    // Dauer-Autofokus einschalten, falls der Browser das anbietet (Chrome/Android)
+    const caps = S.track && S.track.getCapabilities ? S.track.getCapabilities() : {};
+    if (caps.focusMode && caps.focusMode.includes("continuous")) S.track.applyConstraints({ advanced: [{ focusMode: "continuous" }] }).catch(() => {});
     return true;
   } catch (e) { console.warn(e); return false; }
 }
-function stopStream() { if (S.stream) { S.stream.getTracks().forEach(t => t.stop()); S.stream = null; } $("#video").srcObject = null; }
+function stopStream() { if (S.stream) { S.stream.getTracks().forEach(t => t.stop()); S.stream = null; } S.track = null; $("#video").srcObject = null; }
+
+/* ---------- Fokus per Tippen (nur wo der Browser es erlaubt; iPhone/Safari: nein) ---------- */
+function fokusMoeglich() {
+  if (!S.track) return false;
+  const sup = navigator.mediaDevices.getSupportedConstraints ? navigator.mediaDevices.getSupportedConstraints() : {};
+  const caps = S.track.getCapabilities ? S.track.getCapabilities() : {};
+  return !!(sup.pointsOfInterest || (caps.focusMode && caps.focusMode.some(m => m === "single-shot" || m === "continuous")));
+}
+$("#video").addEventListener("click", async ev => {
+  if (S.sysMode || !S.track) return;
+  const f = $("#fokus"); f.style.left = ev.clientX + "px"; f.style.top = ev.clientY + "px";
+  f.classList.add("on"); setTimeout(() => f.classList.remove("on"), 700);
+  if (!fokusMoeglich()) {
+    if (!S.fokusHinweis) { S.fokusHinweis = true; toast("Dieser Browser erlaubt kein Fokussieren per Tippen (iPhone/Safari). Für Fokus + volle Kamera: „Systemkamera“.", 5000); }
+    return;
+  }
+  // Tipp-Position im angezeigten Bild (object-fit: cover) in 0..1 des Kamerabildes umrechnen
+  const v = ev.currentTarget, r = v.getBoundingClientRect(), W = v.videoWidth, H = v.videoHeight;
+  const s = Math.max(r.width / W, r.height / H), dx = (r.width - W * s) / 2, dy = (r.height - H * s) / 2;
+  const x = Math.min(1, Math.max(0, (ev.clientX - r.left - dx) / (W * s))), y = Math.min(1, Math.max(0, (ev.clientY - r.top - dy) / (H * s)));
+  const caps = S.track.getCapabilities ? S.track.getCapabilities() : {}, adv = { pointsOfInterest: [{ x, y }] };
+  if (caps.focusMode && caps.focusMode.includes("single-shot")) adv.focusMode = "single-shot";
+  try { await S.track.applyConstraints({ advanced: [adv] }); } catch (e) { toast("Fokus nicht möglich: " + e.message); }
+});
+
+/* ---------- Auflösung wählen ---------- */
+function zeigeAufl() { const a = AUFL.find(x => x.k === S.aufl) || AUFL[0]; $("#aufl").textContent = "Auflösung: " + a.t; }
+$("#aufl").addEventListener("click", async () => {
+  const i = AUFL.findIndex(x => x.k === S.aufl);
+  S.aufl = AUFL[(i + 1) % AUFL.length].k; store.set("aufl", S.aufl); zeigeAufl();
+  if (!S.sysMode) { stopStream(); if (!(await startStream())) { S.sysMode = true; toast("Live-Kamera nicht verfügbar."); } renderCam(); }
+});
+zeigeAufl();
+
+/* ---------- Vorab-Label je Fleck ---------- */
+document.querySelectorAll("#vorlabel [data-v]").forEach(b => b.addEventListener("click", () => {
+  if (!S.cur) return;
+  S.cur.vorlabel = b.dataset.v;          // bewusst je Fleck neu wählen, nichts von der letzten Serie übernehmen
+  $("#vorlabel").classList.remove("fehlt"); renderCam();
+}));
+function vorlabelFehlt() {
+  if (S.cur && S.cur.vorlabel) return false;
+  const el = $("#vorlabel"); el.classList.remove("fehlt"); void el.offsetWidth; el.classList.add("fehlt");
+  toast("Bitte zuerst oben auswählen: Harz frisch, Harz alt, kein Harz oder unsicher.", 3500);
+  return true;
+}
 
 async function openCamera() {
   await enableOrientation();               // muss direkt im Klick passieren (iOS)
@@ -185,11 +243,15 @@ function renderCam() {
   $("#cStep").textContent = `Foto ${Math.min(E.step, 2) + 1} von 3` + (st.req ? "" : " · optional");
   $("#cTitle").textContent = st.t; $("#cLine").textContent = st.line;
   $("#skip").classList.toggle("hidden", st.req);
+  document.querySelectorAll("#vorlabel [data-v]").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.v === E.vorlabel)));
+  $("#vorlabel span").textContent = E.vorlabel ? "Fotografiert: " + VORLABEL[E.vorlabel] + " (antippen zum Ändern)" : "Was fotografierst du?";
+  $("#aufl").classList.toggle("hidden", S.sysMode);
   $("#sysCam").textContent = S.sysMode ? "Live-Kamera" : "Systemkamera";
   $("#video").classList.toggle("hidden", S.sysMode);
   $(".frame").classList.toggle("hidden", S.sysMode);
   const v = $("#video");
-  $("#res").textContent = S.sysMode ? "Systemkamera: volle Auflösung, öffnet sich beim Auslösen" : (v.videoWidth ? `Live-Kamera ${v.videoWidth}×${v.videoHeight}` : "");
+  $("#res").textContent = S.sysMode ? "Systemkamera: volle Auflösung, Fokus per Tippen, öffnet sich beim Auslösen"
+    : (v.videoWidth ? `Live-Kamera ${v.videoWidth}×${v.videoHeight} (${(v.videoWidth * v.videoHeight / 1e6).toFixed(1)} MP)` + (fokusMoeglich() ? " · Fokus: ins Bild tippen" : "") : "");
   $("#strip").innerHTML = STEPS.map((s, i) => {
     const sl = E.slots[s.k];
     return `<button class="slot ${i === E.step ? "cur" : ""}" data-i="${i}">${sl && sl.url ? `<img src="${sl.url}" alt="">` : ""}<span>${i + 1} ${s.t}${sl ? (sl.skipped ? " –" : " ✓") : ""}</span></button>`;
@@ -238,7 +300,7 @@ async function saveShot({ blob, src, W, H, tilt, source }) {
   const photoId = uuid();
   const item = {
     id: photoId, entryId: E.entryId, shot: st.k, blob, thumb,
-    meta: { hall: S.hall, plate: S.plate, device_id: S.device, taken_at: new Date().toISOString(), width: W, height: H, bytes: blob.size, source, quality: q, tilt, app_version: APP_VERSION, retake: !!old }
+    meta: { hall: S.hall, plate: S.plate, device_id: S.device, taken_at: new Date().toISOString(), width: W, height: H, bytes: blob.size, source, quality: q, tilt, app_version: APP_VERSION, retake: !!old, vorlabel: E.vorlabel || null }
   };
   await idb.put(item);
   E.slots[st.k] = { photoId, url: URL.createObjectURL(thumb), hints: hints(q, W, H) };
@@ -252,6 +314,7 @@ async function saveShot({ blob, src, W, H, tilt, source }) {
 }
 
 $("#shutter").addEventListener("click", () => {
+  if (vorlabelFehlt()) return;
   if (S.sysMode) { const f = $("#fileCam"); f.value = ""; f.click(); }
   else captureLive().catch(e => toast("Fehler: " + e.message));
 });
@@ -286,7 +349,9 @@ async function uploadOne(it) {
   const up2 = await sb.storage.from(BUCKET).upload(base + "_thumb.jpg", it.thumb, { contentType: "image/jpeg", upsert: false });
   if (up2.error && !isExists(up2.error)) throw up2.error;
   const row = Object.assign({ id: it.id, entry_id: it.entryId, shot: it.shot, storage_path: base + ".jpg", thumb_path: base + "_thumb.jpg" }, it.meta);
-  const ins = await sb.from("photos").insert(row);
+  let ins = await sb.from("photos").insert(row);
+  // Datenbank noch ohne Spalte "vorlabel" (Update-SQL nicht ausgeführt)? Dann ohne sie speichern, statt hängen zu bleiben
+  if (ins.error && /vorlabel/i.test(ins.error.message || "")) { delete row.vorlabel; ins = await sb.from("photos").insert(row); }
   if (ins.error && ins.error.code !== "23505") throw ins.error;
 }
 async function pump() {
@@ -320,7 +385,7 @@ function renderLast() {
   const L = S.last, el = $("#last"); if (!el) return;
   if (!L) { el.innerHTML = ""; return; }
   const pending = id => S.queue.some(x => x.id === id);
-  el.innerHTML = `<h3>Letzter Fleck <span class="hint">– antippen zum Neu-Aufnehmen</span></h3><div class="thumbs">${STEPS.map((s, i) => {
+  el.innerHTML = `<h3>Letzter Fleck${L.vorlabel ? " · " + esc(VORLABEL[L.vorlabel]) : ""} <span class="hint">– antippen zum Neu-Aufnehmen</span></h3><div class="thumbs">${STEPS.map((s, i) => {
     const sl = L.slots[s.k];
     const ov = !sl ? "" : sl.skipped ? "–" : pending(sl.photoId) ? (DEMO ? "📱" : '<span class="spin"></span>') : '<span style="color:var(--ok)">✓</span>';
     return `<button class="th" data-i="${i}"><div class="im">${sl && sl.url ? `<img src="${sl.url}" alt="">` : (i + 1)}${ov ? `<span class="ov">${ov}</span>` : ""}</div><div class="t">${s.t}</div></button>`;

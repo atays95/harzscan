@@ -91,6 +91,17 @@ details{font-size:14px} details summary{cursor:pointer;color:var(--blue);font-we
 #cam .flash{position:absolute;inset:0;background:#fff;opacity:0;pointer-events:none;z-index:3;transition:opacity .25s}
 #cam .flash.on{opacity:.8;transition:none}
 #cam .res{font-size:11px;opacity:.75;margin-top:6px;text-align:center}
+/* Vorab-Label (v1.1) */
+#cam .vorlabel{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-top:10px}
+#cam .vorlabel span{font-size:13px;font-weight:700;width:100%}
+#cam .vorlabel button{background:rgba(0,0,0,.45);border:2px solid rgba(255,255,255,.45);color:#fff;font:inherit;font-size:14px;font-weight:700;border-radius:999px;padding:6px 12px;cursor:pointer}
+#cam .vorlabel button[aria-pressed="true"]{background:var(--amber);border-color:var(--amber)}
+#cam .vorlabel.fehlt span{color:#fca5a5}
+#cam .vorlabel.fehlt button{animation:wackeln .35s 2}
+@keyframes wackeln{25%{transform:translateX(-4px)}75%{transform:translateX(4px)}}
+/* Fokus-Ring beim Antippen */
+#cam .fokus{position:absolute;z-index:2;width:76px;height:76px;margin:-38px 0 0 -38px;border:2px solid #facc15;border-radius:10px;pointer-events:none;opacity:0;transition:opacity .4s}
+#cam .fokus.on{opacity:1;transition:none}
 
 /* ---------- Admin ---------- */
 .filters{display:grid;grid-template-columns:repeat(3,1fr);gap:6px}
