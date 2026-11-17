@@ -7,13 +7,8 @@
 (() => {
 "use strict";
 
-const APP_VERSION = "web-1.1";   // 1.1: Vorab-Label, Auflösungswahl, Fokus per Tippen (wo der Browser es erlaubt)
+const APP_VERSION = "web-1.2";   // 1.1: Vorab-Label, Fokus per Tippen (wo der Browser es erlaubt); 1.2: immer max. Auflösung
 const VORLABEL = { harz_frisch: "Harz frisch", harz_alt: "Harz alt", kein_harz: "kein Harz", unsicher: "unsicher" };
-const AUFL = [   // Live-Kamera; "max" = höchste Auflösung, die der Browser liefert (iPhone meist 12 MP)
-  { k: "max", t: "Max", w: 4032, h: 3024 },
-  { k: "4k",  t: "4K",  w: 3840, h: 2160 },
-  { k: "hd",  t: "Full HD", w: 1920, h: 1080 }
-];
 const CFG = window.HARZSCAN_CONFIG || {};
 const DEMO = !CFG.supabaseUrl || !CFG.supabaseAnonKey;
 const BUCKET = CFG.bucket || "harzscan";
@@ -46,7 +41,7 @@ const S = {
   device: store.get("device", null),
   cur: null, last: null, stream: null, sysMode: false, ori: null, oriAsked: false,
   queue: [], uploading: false, lastError: null, uploadedCount: store.get("uploaded", 0),
-  aufl: store.get("aufl", "max"), track: null, fokusHinweis: false
+  track: null, fokusHinweis: false
 };
 if (!S.device) { S.device = uuid(); store.set("device", S.device); }
 if (CFG.projectName) $("#projName").textContent = CFG.projectName;
@@ -163,9 +158,8 @@ function drawLevel() {
 async function startStream() {
   if (S.stream) return true;
   if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) return false;
-  const a = AUFL.find(x => x.k === S.aufl) || AUFL[0];
-  try {
-    S.stream = await navigator.mediaDevices.getUserMedia({ audio: false, video: { facingMode: { ideal: "environment" }, width: { ideal: a.w }, height: { ideal: a.h } } });
+  try {   // immer die höchste Auflösung, die der Browser liefert (iPhone: 12 MP)
+    S.stream = await navigator.mediaDevices.getUserMedia({ audio: false, video: { facingMode: { ideal: "environment" }, width: { ideal: 4032 }, height: { ideal: 3024 } } });
     const v = $("#video"); v.srcObject = S.stream; await v.play().catch(() => {});
     S.track = S.stream.getVideoTracks()[0] || null;
     // Dauer-Autofokus einschalten, falls der Browser das anbietet (Chrome/Android)
@@ -199,15 +193,6 @@ $("#video").addEventListener("click", async ev => {
   if (caps.focusMode && caps.focusMode.includes("single-shot")) adv.focusMode = "single-shot";
   try { await S.track.applyConstraints({ advanced: [adv] }); } catch (e) { toast("Fokus nicht möglich: " + e.message); }
 });
-
-/* ---------- Auflösung wählen ---------- */
-function zeigeAufl() { const a = AUFL.find(x => x.k === S.aufl) || AUFL[0]; $("#aufl").textContent = "Auflösung: " + a.t; }
-$("#aufl").addEventListener("click", async () => {
-  const i = AUFL.findIndex(x => x.k === S.aufl);
-  S.aufl = AUFL[(i + 1) % AUFL.length].k; store.set("aufl", S.aufl); zeigeAufl();
-  if (!S.sysMode) { stopStream(); if (!(await startStream())) { S.sysMode = true; toast("Live-Kamera nicht verfügbar."); } renderCam(); }
-});
-zeigeAufl();
 
 /* ---------- Vorab-Label je Fleck ---------- */
 document.querySelectorAll("#vorlabel [data-v]").forEach(b => b.addEventListener("click", () => {
@@ -245,7 +230,6 @@ function renderCam() {
   $("#skip").classList.toggle("hidden", st.req);
   document.querySelectorAll("#vorlabel [data-v]").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.v === E.vorlabel)));
   $("#vorlabel span").textContent = E.vorlabel ? "Fotografiert: " + VORLABEL[E.vorlabel] + " (antippen zum Ändern)" : "Was fotografierst du?";
-  $("#aufl").classList.toggle("hidden", S.sysMode);
   $("#sysCam").textContent = S.sysMode ? "Live-Kamera" : "Systemkamera";
   $("#video").classList.toggle("hidden", S.sysMode);
   $(".frame").classList.toggle("hidden", S.sysMode);
